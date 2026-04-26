@@ -20,23 +20,20 @@ material = SubResource("StandardMaterial3D_tlwt5")
 [sub_resource type="CompositorEffect" id="CompositorEffect_fj7yv"]
 resource_local_to_scene = false
 resource_name = ""
-enabled = false
+enabled = true
 effect_callback_type = 1
 access_resolved_color = false
-access_resolved_depth = false
+access_resolved_depth = true
 needs_motion_vectors = false
-needs_normal_roughness = false
+needs_normal_roughness = true
 script = ExtResource("1_f3sb7")
 shader_code = "float linear_depth = get_linear_depth(depth);
 vec2 texel_size = 1.0 / vec2(size);
-
 float depth_difference = 0.0;
 for (int i = 0; i < 4; i++) {
     depth_difference += linear_depth - get_linear_depth(neighbor_depths[i]);
 }
-
 float edge = step(params.depth_threshold, depth_difference);
-
 // Palette quantization
 vec3 color_lab = rgb_to_oklab(color.rgb);
 vec4 nearest = palette.colors[0];
@@ -49,13 +46,12 @@ for (int i = 1; i < palette.colors.length(); i++) {
     }
 }
 color = nearest;
-
 color.rgb = color.rgb * (1.0 - edge * 0.9);"
 pixel_size = 2
 depth_threshold = 0.036
-normal_threshold = 1.0
-palette = Array[Color]([Color(0.80784315, 0.23137255, 0.14901961, 1), Color(0.96862745, 0.5294118, 0.16470589, 1), Color(0.9882353, 0.8352941, 0.41960785, 1), Color(0.90588236, 0.58431375, 0.18039216, 1), Color(0.9764706, 0.72156864, 0.34117648, 1), Color(0.9411765, 0.7607843, 0.03529412, 1), Color(0.69411767, 0.43137255, 0.27058825, 1), Color(0.95686275, 0.69803923, 0.47843137, 1), Color(0.9411765, 0.84705883, 0.6156863, 1), Color(0.9764706, 0.9607843, 0.8235294, 1), Color(0.56078434, 0.2627451, 0.28627452, 1), Color(1, 0.6509804, 0.5254902, 1), Color(0.99215686, 0.80784315, 0.67058825, 1), Color(0.36078432, 0.6745098, 0.28235295, 1), Color(0.54901963, 0.80784315, 0.42352942, 1), Color(0.75686276, 0.9254902, 0.28235295, 1), Color(0.023529412, 0.011764706, 0.16078432, 1), Color(0.10980392, 0.15686275, 0.2, 1), Color(0.078431375, 0.3137255, 0.25490198, 1), Color(0.13725491, 0.08627451, 0.09411765, 1), Color(0.32156864, 0.11764706, 0.13725491, 1), Color(0.5137255, 0.12941177, 0.12941177, 1), Color(1, 0.5019608, 0.2901961, 1), Color(0.88235295, 0.38039216, 0.4117647, 1), Color(0.93333334, 0.5019608, 0.58431375, 1), Color(0.48235294, 0.21568628, 0.5058824, 1), Color(0.7137255, 0.3019608, 0.45882353, 1), Color(0.627451, 0.4509804, 0.52156866, 1), Color(0.26666668, 0.019607844, 0.043137256, 1), Color(0.42745098, 0.16470589, 0.25490198, 1), Color(0.5882353, 0.17254902, 0.32156864, 1), Color(0.8980392, 0.2, 0.4, 1), Color(0.43137255, 0.3372549, 0.34117648, 1), Color(0.654902, 0.6745098, 0.7294118, 1), Color(0.6745098, 0.8039216, 0.9254902, 1), Color(0.10980392, 0.36078432, 0.5137255, 1), Color(0.16862746, 0.65882355, 0.70980394, 1), Color(0.27450982, 0.8627451, 0.8039216, 1)])
-hex_file_path = "res://assets/lux3k.hex"
+normal_threshold = 0.001
+palette = Array[Color]([Color(0.9490196, 0.9411765, 0.8980392, 1), Color(0.72156864, 0.70980394, 0.7254902, 1), Color(0.5254902, 0.5058824, 0.53333336, 1), Color(0.39215687, 0.3882353, 0.39607844, 1), Color(0.27058825, 0.26666668, 0.30980393, 1), Color(0.22745098, 0.21960784, 0.34509805, 1), Color(0.12941177, 0.12941177, 0.13725491, 1), Color(0.20784314, 0.16862746, 0.25882354, 1), Color(0.2627451, 0.2627451, 0.41568628, 1), Color(0.29411766, 0.5019608, 0.7921569, 1), Color(0.40784314, 0.7607843, 0.827451, 1), Color(0.63529414, 0.8627451, 0.78039217, 1), Color(0.92941177, 0.88235295, 0.61960787, 1), Color(0.827451, 0.627451, 0.40784314, 1), Color(0.7058824, 0.32156864, 0.32156864, 1), Color(0.41568628, 0.3254902, 0.43137255, 1), Color(0.29411766, 0.25490198, 0.34509805, 1), Color(0.5019608, 0.28627452, 0.22745098, 1), Color(0.654902, 0.48235294, 0.35686275, 1), Color(0.8980392, 0.80784315, 0.7058824, 1), Color(0.7607843, 0.827451, 0.40784314, 1), Color(0.5411765, 0.6901961, 0.3764706, 1), Color(0.3372549, 0.48235294, 0.4745098, 1), Color(0.30588236, 0.34509805, 0.2901961, 1), Color(0.48235294, 0.44705883, 0.2627451, 1), Color(0.69803923, 0.7058824, 0.49411765, 1), Color(0.92941177, 0.78431374, 0.76862746, 1), Color(0.8117647, 0.5411765, 0.79607844, 1), Color(0.37254903, 0.33333334, 0.41568628, 1)])
+hex_file_path = "res://assets/cc-29.hex"
 metadata/_custom_type_script = "uid://catavbay88ohk"
 
 [sub_resource type="Compositor" id="Compositor_tlwt5"]
@@ -79,7 +75,7 @@ transform = Transform3D(0.6670007, 0, -0.74505705, 0, 1, 0, 0.74505705, 0, 0.667
 mesh = SubResource("BoxMesh_aqk2v")
 
 [node name="Box3" type="MeshInstance3D" parent="Meshes" unique_id=781426626]
-transform = Transform3D(-0.94712067, 0, -0.3208775, 0, 1, 0, 0.3208775, 0, -0.94712067, 0.007314235, 1.5, 0.012982041)
+transform = Transform3D(-0.9483123, 0, -0.31727272, 0, 1.0000154, 0, 0.31727624, 0, -0.9483004, 0.007314235, 1.5, 0.012982041)
 mesh = SubResource("BoxMesh_aqk2v")
 
 [node name="Box4" type="MeshInstance3D" parent="Meshes" unique_id=1760190209]

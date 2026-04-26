@@ -8,10 +8,9 @@ const template_shader: String = """
 // Invocations in the (x, y, z) dimension
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// binding 0: depth, binding 1: color, binding 2: palette
+// binding 0: depth, binding 1: color, binding 2: palette, binding 3: normal/roughness
 layout(set = 0, binding = 0) uniform sampler2D depth_buffer;
 layout(rgba16f, set = 0, binding = 1) uniform image2D color_image;
-layout(set = 0, binding = 3) uniform sampler2D normal_roughness_buffer;
 
 // Our push constant
 layout(push_constant, std430) uniform Params {
@@ -19,13 +18,14 @@ layout(push_constant, std430) uniform Params {
 	float pixel_size;
 	float depth_threshold;
 	float normal_threshold;
-	float ortho_size;
 } params;
 
 // The palette constant
 layout(set = 0, binding = 2) readonly buffer Palette {
     vec4 colors[];
 } palette;
+
+layout(set = 0, binding = 3) uniform sampler2D normal_roughness_buffer;
 
 vec3 rgb_to_oklab(vec3 c) {
     // Linear RGB to LMS cone responses
@@ -49,11 +49,6 @@ float get_linear_depth(float raw_depth) {
     float z_near = 0.05;
     float z_far = 100.0;
     return (1.0 - raw_depth) * (z_far - z_near) + z_near;
-}
-
-vec3 get_normal(vec2 uv) {
-    // RGB is view-space normal packed from [-1,1] into [0,1]
-    return texture(normal_roughness_buffer, uv).rgb * 2.0 - 1.0;
 }
 
 // The code we want to execute in each invocation
@@ -127,6 +122,7 @@ var shader_is_dirty = true
 var palette_buffer: RID
 var palette_is_dirty = true
 var depth_sampler: RID
+var normal_sampler: RID
 
 
 func _update_palette_buffer():
@@ -136,7 +132,8 @@ func _update_palette_buffer():
 		rd.free_rid(palette_buffer)
 	
 	var data = PackedFloat32Array()
-	for c in palette:
+	var colors_to_use = palette if not palette.is_empty() else [Color.WHITE]
+	for c in colors_to_use:
 		var linear = c.srgb_to_linear()
 		data.push_back(linear.r)
 		data.push_back(linear.g)
@@ -191,6 +188,8 @@ func _notification(what):
 			rd.free_rid(palette_buffer)
 		if depth_sampler.is_valid():
 			rd.free_rid(depth_sampler)
+		if normal_sampler.is_valid():
+			rd.free_rid(normal_sampler)
 
 func _check_shader() -> bool:
 	if not rd:
@@ -234,15 +233,13 @@ func _check_shader() -> bool:
 func _render_callback(p_effect_callback_type, p_render_data):
 	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_OPAQUE and _check_shader():
 
-		# Create sampler lazily the first time it's needed
+		# Create samplers lazily the first time they're needed
 		if not depth_sampler.is_valid():
 			depth_sampler = rd.sampler_create(RDSamplerState.new())
+		if not normal_sampler.is_valid():
+			normal_sampler = rd.sampler_create(RDSamplerState.new())
 
 		var render_scene_buffers: RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
-		var scene_data = p_render_data.get_render_scene_data()
-		var projection = scene_data.get_cam_projection()
-
-		var ortho_size = 2.0 / projection[1][1]
 
 		if render_scene_buffers:
 			var size = render_scene_buffers.get_internal_size()
@@ -260,9 +257,9 @@ func _render_callback(p_effect_callback_type, p_render_data):
 			push_constant.push_back(float(pixel_size))
 			push_constant.push_back(depth_threshold)
 			push_constant.push_back(normal_threshold)
-			push_constant.push_back(ortho_size)
-			push_constant.push_back(0.0) # _pad1
-			push_constant.push_back(0.0) # _pad2
+			push_constant.push_back(0.0) 
+			push_constant.push_back(0.0)
+			push_constant.push_back(0.0)
 
 			if palette_is_dirty:
 				_update_palette_buffer()
@@ -289,13 +286,17 @@ func _render_callback(p_effect_callback_type, p_render_data):
 				palette_uniform.binding = 2
 				palette_uniform.add_id(palette_buffer)
 
-				# binding 3: normals
+				# binding 3: normal roughness
+				# binding 3: normal roughness
+				var normal_image = render_scene_buffers.get_texture_slice("forward_clustered", "normal_roughness", view, 0, 1, 1)
+				if not normal_image.is_valid():
+					push_error("Could not get normal_roughness texture - is the renderer set to Forward+?")
+					return
 				var normal_uniform: RDUniform = RDUniform.new()
 				normal_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 				normal_uniform.binding = 3
-				normal_uniform.add_id(depth_sampler)
-				normal_uniform.add_id(render_scene_buffers.get_normal_roughness_layer(view))
-
+				normal_uniform.add_id(normal_sampler)
+				normal_uniform.add_id(normal_image)
 
 				var uniform_set = UniformSetCacheRD.get_cache(shader, 0, [depth_uniform, color_uniform, palette_uniform, normal_uniform])
 

@@ -1,28 +1,45 @@
-// Constants
 float linear_depth = get_linear_depth(depth);
 vec2 texel_size = 1.0 / vec2(size);
-vec3 current_normal = get_normal(texel, texel_size);
 
-// Edges
+// Depth edges
 float depth_difference = 0.0;
-float normal_difference = 0.0;
 for (int i = 0; i < 4; i++) {
-    // The neighbors linear depth
-    float n_linear = get_linear_depth(neighbor_depths[i]);
-    // Outside edges
-    depth_difference += linear_depth - n_linear;
+    depth_difference += linear_depth - get_linear_depth(neighbor_depths[i]);
+}
+float depth_edge = step(params.depth_threshold, depth_difference);
 
-    // Normal edges, only compare on continuous surfaces to avoid corrupted normals causing ghost edges
-    if (abs(linear_depth - n_linear) < params.depth_threshold) {
-        vec2 n_texel = (vec2(snapped_uv) + neighbor_offsets[i] + 0.5) / vec2(size);
-        vec3 n_normal = get_normal(n_texel, texel_size);
-        normal_difference += 1.0 - dot(current_normal, n_normal);
+// Normal edges using G-buffer normals (view-space, packed into [0,1])
+vec3 center_normal = texture(normal_roughness_buffer, texel).rgb * 2.0 - 1.0;
+float normal_difference = 0.0;
+vec2[4] neighbor_texels = vec2[4](
+    (vec2(snapped_uv) + vec2( pixel_size,  0.0) + 0.5) / vec2(size),
+    (vec2(snapped_uv) + vec2(-pixel_size,  0.0) + 0.5) / vec2(size),
+    (vec2(snapped_uv) + vec2( 0.0,  pixel_size) + 0.5) / vec2(size),
+    (vec2(snapped_uv) + vec2( 0.0, -pixel_size) + 0.5) / vec2(size)
+);
+for (int i = 0; i < 4; i++) {
+    vec3 neighbor_normal = texture(normal_roughness_buffer, neighbor_texels[i]).rgb * 2.0 - 1.0;
+    normal_difference += 1.0 - dot(center_normal, neighbor_normal);
+}
+float normal_edge = step(params.normal_threshold, normal_difference);
+
+// Skip normal edges on skybox/background (depth == 1.0 means nothing was drawn)
+float edge = depth < 1.0 ? max(depth_edge, normal_edge) : 0.0;
+
+// Palette quantization
+vec3 color_lab = rgb_to_oklab(color.rgb);
+vec4 nearest = palette.colors[0];
+float nearest_dist = distance(color_lab, rgb_to_oklab(nearest.rgb));
+for (int i = 1; i < palette.colors.length(); i++) {
+    float d = distance(color_lab, rgb_to_oklab(palette.colors[i].rgb));
+    if (d < nearest_dist) {
+        nearest_dist = d;
+        nearest = palette.colors[i];
     }
 }
 
-float depth_edge = step(params.depth_threshold, depth_difference);
-float normal_edge = step(params.normal_threshold, normal_difference);
-float edge = max(depth_edge, normal_edge);
-
-
+color = nearest;
 color.rgb = color.rgb * (1.0 - edge * 0.9);
+
+vec3 normal = texture(normal_roughness_buffer, texel).rgb * 2.0 - 1.0;
+color = vec4(normal * 0.5 + 0.5, 1.0);

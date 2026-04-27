@@ -2,6 +2,7 @@
 extends CompositorEffect
 class_name PostProcessShader
 
+#region template_shader
 const template_shader: String = """
 #version 450
 
@@ -100,8 +101,9 @@ void main() {
 	imageStore(color_image, uv, color);
 }
 """
+#endregion
 
-
+#region exposed_variables
 @export_multiline var shader_code: String = "":
 	set(value):
 		mutex.lock()
@@ -109,14 +111,7 @@ void main() {
 		shader_is_dirty = true
 		mutex.unlock()
 
-
-var rd: RenderingDevice
-var shader: RID
-var pipeline: RID
-
-var mutex: Mutex = Mutex.new()
-var shader_is_dirty = true
-
+@export_category("Shader Configs")
 @export var pixel_size: int = 4:
 	set(value):
 		pixel_size = value
@@ -133,15 +128,11 @@ var shader_is_dirty = true
 	set(value):
 		crease_multiplier = value
 
+@export_category("Palette")
 @export var palette: Array[Color] = []:
 	set(value):
 		palette = value
 		palette_is_dirty = true
-
-var palette_buffer: RID
-var palette_is_dirty = true
-var depth_sampler: RID
-var normal_sampler: RID
 
 
 func _update_palette_buffer():
@@ -164,9 +155,7 @@ func _update_palette_buffer():
 
 
 # Hex file import stuff
-
 @export_file("*.hex") var hex_file_path: String = ""
-
 @export_tool_button("Import Hex Palette") var _import_button = _import_hex_palette
 
 func _import_hex_palette():
@@ -191,6 +180,21 @@ func _import_hex_palette():
 	
 	palette = new_palette
 	palette_is_dirty = true
+
+#endregion
+
+var rd: RenderingDevice
+var shader: RID
+var pipeline: RID
+
+var palette_buffer: RID
+var palette_is_dirty = true
+var depth_sampler: RID
+var normal_sampler: RID
+
+var mutex: Mutex = Mutex.new()
+var shader_is_dirty = true
+
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_OPAQUE

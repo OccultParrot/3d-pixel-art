@@ -11,24 +11,25 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // binding 0: depth, binding 1: color, binding 2: palette, binding 3: normal/roughness
 layout(set = 0, binding = 0) uniform sampler2D depth_buffer;
+
 layout(rgba16f, set = 0, binding = 1) uniform image2D color_image;
 
-// Our push constant
-layout(push_constant, std430) uniform Params {
-	vec2 raster_size;
-	float pixel_size;
-	float depth_threshold;
-	float normal_threshold;
-	float crease_multiplier;
-} params;
-
-// The palette constant
 layout(set = 0, binding = 2) readonly buffer Palette {
     vec4 colors[];
 } palette;
 
 layout(set = 0, binding = 3) uniform sampler2D normal_roughness_buffer;
 
+// Our push constant
+layout(push_constant, std430) uniform Params {
+	vec2 raster_size;
+	float pixel_size;
+	float depth_threshold;
+	float crease_threshold;
+	float crease_multiplier;
+} params;
+
+// Helper function for quantization
 vec3 rgb_to_oklab(vec3 c) {
     // Linear RGB to LMS cone responses
     float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
@@ -47,16 +48,19 @@ vec3 rgb_to_oklab(vec3 c) {
     );
 }
 
+// Helper function for converting depth to a more normalized depth
 float get_linear_depth(float raw_depth) {
     float z_near = 0.05;
     float z_far = 100.0;
     return (1.0 - raw_depth) * (z_far - z_near) + z_near;
 }
 
+// For sampling normals
 vec3 get_raw_normal(vec2 texel) {
 	return texture(normal_roughness_buffer, texel).rgb * 2.0 - 1.0;
 }
 
+// Normalizing the normal from [-1, 1] to [0, 1] in order to display it. Mostly used in testing.
 vec3 get_clean_normal(vec3 raw_normal) {
 	return raw_normal * 0.5 + 0.5;
 }
@@ -66,16 +70,21 @@ void main() {
 	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
 	ivec2 size = ivec2(params.raster_size);
 
+	// If the pixel we are sampling is off the screen, ignore it.
 	if (uv.x >= size.x || uv.y >= size.y) {
 		return;
 	}
 
-	int pixel_size = int(params.pixel_size);
-	ivec2 snapped_uv = (uv / pixel_size) * pixel_size;
-	vec2 texel = (vec2(snapped_uv) + 0.5) / vec2(size);
-	float depth = texture(depth_buffer, texel).r;
-
-	vec4 color = imageLoad(color_image, snapped_uv);
+	int pixel_size = int(params.pixel_size);            // Getting pixel size from the push constant
+	// Getting the pixel to sample for everything, 
+	// cause we want to sample one for a whole texel to make everything fit the pixel grid
+	ivec2 snapped_uv = (uv / pixel_size) * pixel_size;  
+	vec2 texel = (vec2(snapped_uv) + 0.5) / vec2(size); // The texel we want to use for sampling
+	
+	
+	float depth = texture(depth_buffer, texel).r; // Current Depth
+	vec4 color = imageLoad(color_image, snapped_uv); // Current Color
+	vec3 normal = get_raw_normal(texel); // Current Normal
 
     vec2 neighbor_offsets[4] = vec2[4](
         vec2( pixel_size,  0),
@@ -84,19 +93,18 @@ void main() {
         vec2( 0, -pixel_size)
     );
 
+	// Getting the neighboring normals and depths
     float neighbor_depths[4];
+	vec3 neighbor_normals[4];
     for (int i = 0; i < 4; i++) {
         vec2 neighbor_texel = (vec2(snapped_uv) + neighbor_offsets[i] + 0.5) / vec2(size);
         neighbor_depths[i] = texture(depth_buffer, neighbor_texel).r;
+		neighbor_normals[i] = get_raw_normal(neighbor_texel);
     }
 
-	vec3 neighbor_normals[4];
-	for (int i = 0; i < 4; i++) {
-		vec2 neighbor_texel = (vec2(snapped_uv) + neighbor_offsets[i] + 0.5) / vec2(size);
-		neighbor_normals[i] = get_raw_normal(neighbor_texel);
-	}
-
+	// === Start Injected Code ===
 	#COMPUTE_CODE
+	// === End Injected Code ===
 
 	imageStore(color_image, uv, color);
 }
@@ -112,7 +120,7 @@ void main() {
 		mutex.unlock()
 
 @export_category("Shader Configs")
-@export var pixel_size: int = 4:
+@export_range(1,8) var pixel_size: int = 4:
 	set(value):
 		pixel_size = value
 
@@ -120,9 +128,9 @@ void main() {
 	set(value):
 		depth_threshold = value
 
-@export_range(0.0, 1.0) var normal_threshold: float = 0.05:
+@export_range(0.0, 1.0) var crease_threshold: float = 0.1:
 	set(value):
-		normal_threshold = value
+		crease_threshold = value
 		
 @export_range(0.0, 5.0) var crease_multiplier: float = 2.0:
 	set(value):
@@ -183,28 +191,34 @@ func _import_hex_palette():
 
 #endregion
 
+# Defining neccisary global variables
 var rd: RenderingDevice
 var shader: RID
 var pipeline: RID
 
 var palette_buffer: RID
-var palette_is_dirty = true
+var palette_is_dirty = true # If true, rebuild the palette
+
 var depth_sampler: RID
 var normal_sampler: RID
 
 var mutex: Mutex = Mutex.new()
-var shader_is_dirty = true
+var shader_is_dirty = true # If true, rebuild the shader
 
 
 func _init():
+	# Choose where we inject it. 
+	# For this shader, we are injecting AFTER the opaque rendering pass but before the sky is rendered.
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_OPAQUE
-	access_resolved_depth = true
-	needs_normal_roughness = true
+
+	access_resolved_depth = true # A flag so we can access the depth buffer
+	needs_normal_roughness = true # A flag so we can access the normal buffer
+
 	rd = RenderingServer.get_rendering_device()
 
 	
 func _notification(what):
-	if what == NOTIFICATION_PREDELETE:
+	if what == NOTIFICATION_PREDELETE: # If the shader is about to be deleted, clean up the resources!
 		if shader.is_valid():
 			rd.free_rid(shader)
 		if palette_buffer.is_valid():
@@ -214,12 +228,14 @@ func _notification(what):
 		if normal_sampler.is_valid():
 			rd.free_rid(normal_sampler)
 
+# Validating the shader to make sure it correct
 func _check_shader() -> bool:
 	if not rd:
 		return false
 	
 	var new_shader_code: String = ""
 
+	# If there is new shader code to be used, update the code so we can inject it.
 	mutex.lock()
 	if shader_is_dirty:
 		new_shader_code = shader_code
@@ -229,23 +245,29 @@ func _check_shader() -> bool:
 	if new_shader_code.is_empty():
 		return pipeline.is_valid()
 	
+	# injecting the user supplied shader code
 	new_shader_code = template_shader.replace("#COMPUTE_CODE", new_shader_code);
 
+	# Refreshing the old shader and pipeline so that we can inject the new shader in
 	if shader.is_valid():
 		rd.free_rid(shader)
 		shader = RID()
 		pipeline = RID()
 
+	# Making the new shader
 	var shader_source: RDShaderSource = RDShaderSource.new()
-	shader_source.language = RenderingDevice.SHADER_LANGUAGE_GLSL
-	shader_source.source_compute = new_shader_code
-	var shader_spirv: RDShaderSPIRV = rd.shader_compile_spirv_from_source(shader_source)
+	# Our shader is written in GLSL so we need to specify that for the code to compile correctly
+	shader_source.language = RenderingDevice.SHADER_LANGUAGE_GLSL 
+	shader_source.source_compute = new_shader_code # Telling the shader what code to compile
+	var shader_spirv: RDShaderSPIRV = rd.shader_compile_spirv_from_source(shader_source) # And finally compiling
 
+	# If there is an error, let the user know
 	if shader_spirv.compile_error_compute != "":
 		push_error(shader_spirv.compile_error_compute)
 		push_error("In: " + new_shader_code)
 		return false
 
+	# Shader is created
 	shader = rd.shader_create_from_spirv(shader_spirv)
 	if not shader.is_valid():
 		return false
@@ -254,6 +276,7 @@ func _check_shader() -> bool:
 	return pipeline.is_valid()
 
 func _render_callback(p_effect_callback_type, p_render_data):
+	# Make sure that we are ready to actually render and that everything is set up correctly
 	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_OPAQUE and _check_shader():
 		# Create samplers lazily the first time they're needed
 		if not depth_sampler.is_valid():
@@ -261,6 +284,7 @@ func _render_callback(p_effect_callback_type, p_render_data):
 		if not normal_sampler.is_valid():
 			normal_sampler = rd.sampler_create(RDSamplerState.new())
 
+		# Get the buffers so we can sample them
 		var render_scene_buffers: RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
 
 		if render_scene_buffers:
@@ -278,11 +302,13 @@ func _render_callback(p_effect_callback_type, p_render_data):
 			push_constant.push_back(size.y)
 			push_constant.push_back(float(pixel_size))
 			push_constant.push_back(depth_threshold)
-			push_constant.push_back(normal_threshold)
+			push_constant.push_back(crease_threshold)
 			push_constant.push_back(crease_multiplier)
-			push_constant.push_back(0.0)
+			# Padding the push array so that it is the correct size for the shader
+			push_constant.push_back(0.0) 
 			push_constant.push_back(0.0)
 
+			# if the palette has changed, refresh it so that we are using the latest version
 			if palette_is_dirty:
 				_update_palette_buffer()
 
@@ -309,19 +335,30 @@ func _render_callback(p_effect_callback_type, p_render_data):
 				palette_uniform.add_id(palette_buffer)
 
 				# binding 3: normal roughness
-				# binding 3: normal roughness
 				var normal_image = render_scene_buffers.get_texture_slice("forward_clustered", "normal_roughness", view, 0, 1, 1)
+				
+				# A check to make sure that we are using the right renderer to get the normals
 				if not normal_image.is_valid():
 					push_error("Could not get normal_roughness texture - is the renderer set to Forward+?")
 					return
+				
 				var normal_uniform: RDUniform = RDUniform.new()
 				normal_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 				normal_uniform.binding = 3
 				normal_uniform.add_id(normal_sampler)
 				normal_uniform.add_id(normal_image)
 
-				var uniform_set = UniformSetCacheRD.get_cache(shader, 0, [depth_uniform, color_uniform, palette_uniform, normal_uniform])
+				# This is really important, this is where we send the uniforms.
+				# If you ever need to make another make sure to append it to this list of uniforms
+				var uniform_set = UniformSetCacheRD.get_cache(
+					shader, 0, [
+						depth_uniform, 
+						color_uniform, 
+						palette_uniform, 
+						normal_uniform
+					])
 
+				# Now we bind everything to the rendering device and we are good to go!
 				var compute_list := rd.compute_list_begin()
 				rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
 				rd.compute_list_bind_uniform_set(compute_list, uniform_set, 0)

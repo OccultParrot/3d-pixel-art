@@ -1,5 +1,8 @@
-float linear_depth = get_linear_depth(depth);      
-vec2 texel_size = 1.0 / vec2(size);
+// Convert our depth to linear for our math
+float linear_depth = get_linear_depth(depth);   
+
+// We calculate the difference of the normals and depths of each of the pixels
+// neighbors so that we can use it in our edge detection
 float depth_difference = 0.0;
 vec3 normal_difference = vec3(0.0);
 for (int i = 0; i < 4; i++) {
@@ -12,6 +15,7 @@ for (int i = 0; i < 4; i++) {
 	normal_difference += normal - n_normal;
 }
 float edge = step(params.depth_threshold, depth_difference);
+
 // Palette quantization
 vec3 color_lab = rgb_to_oklab(color.rgb);
 vec4 nearest = palette.colors[0];
@@ -25,10 +29,13 @@ for (int i = 1; i < palette.colors.length(); i++) {
 }
 color = nearest;
 vec4 original_color = color;
-float avg = dot(normal_difference, vec3(1.0 / 3.0));
 
+// The average between the X, Y, and Z of the normal difference
+float avg = dot(normal_difference, vec3(1.0 / 3.0));
+// If its an edge set it to the original pixel color but darker
 if (edge > 0.0) {
 	color.rgb = original_color.rgb * (1.0 - edge * 0.9);
-} else if (avg > 0.1) {
+// If its a crease set it to the original pixel color but lighter
+} else if (avg > params.crease_threshold) {
 	color.rgb = original_color.rgb * params.crease_multiplier;
 }

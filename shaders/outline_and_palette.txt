@@ -7,7 +7,6 @@ for (int i = 0; i < 4; i++) {
     depth_difference += linear_depth - get_linear_depth(neighbor_depths[i]);
 
 	// Calculating Creases
-	vec3 normal = get_raw_normal(texel);
 	vec3 n_normal = neighbor_normals[i];
 	normal_difference += normal - n_normal;
 }

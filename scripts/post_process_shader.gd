@@ -18,6 +18,7 @@ layout(push_constant, std430) uniform Params {
 	float pixel_size;
 	float depth_threshold;
 	float normal_threshold;
+	float crease_multiplier;
 } params;
 
 // The palette constant
@@ -127,6 +128,10 @@ var shader_is_dirty = true
 @export_range(0.0, 1.0) var normal_threshold: float = 0.05:
 	set(value):
 		normal_threshold = value
+		
+@export_range(0.0, 5.0) var crease_multiplier: float = 2.0:
+	set(value):
+		crease_multiplier = value
 
 @export var palette: Array[Color] = []:
 	set(value):
@@ -270,7 +275,7 @@ func _render_callback(p_effect_callback_type, p_render_data):
 			push_constant.push_back(float(pixel_size))
 			push_constant.push_back(depth_threshold)
 			push_constant.push_back(normal_threshold)
-			push_constant.push_back(0.0)
+			push_constant.push_back(crease_multiplier)
 			push_constant.push_back(0.0)
 			push_constant.push_back(0.0)
 

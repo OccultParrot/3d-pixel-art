@@ -51,6 +51,14 @@ float get_linear_depth(float raw_depth) {
     return (1.0 - raw_depth) * (z_far - z_near) + z_near;
 }
 
+vec3 get_raw_normal(vec2 texel) {
+	return texture(normal_roughness_buffer, texel).rgb * 2.0 - 1.0;
+}
+
+vec3 get_clean_normal(vec3 raw_normal) {
+	return raw_normal * 0.5 + 0.5;
+}
+
 // The code we want to execute in each invocation
 void main() {
 	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
@@ -79,6 +87,12 @@ void main() {
         vec2 neighbor_texel = (vec2(snapped_uv) + neighbor_offsets[i] + 0.5) / vec2(size);
         neighbor_depths[i] = texture(depth_buffer, neighbor_texel).r;
     }
+
+	vec3 neighbor_normals[4];
+	for (int i = 0; i < 4; i++) {
+		vec2 neighbor_texel = (vec2(snapped_uv) + neighbor_offsets[i] + 0.5) / vec2(size);
+		neighbor_normals[i] = get_raw_normal(neighbor_texel);
+	}
 
 	#COMPUTE_CODE
 
@@ -232,7 +246,6 @@ func _check_shader() -> bool:
 
 func _render_callback(p_effect_callback_type, p_render_data):
 	if rd and p_effect_callback_type == EFFECT_CALLBACK_TYPE_POST_OPAQUE and _check_shader():
-
 		# Create samplers lazily the first time they're needed
 		if not depth_sampler.is_valid():
 			depth_sampler = rd.sampler_create(RDSamplerState.new())
@@ -257,7 +270,7 @@ func _render_callback(p_effect_callback_type, p_render_data):
 			push_constant.push_back(float(pixel_size))
 			push_constant.push_back(depth_threshold)
 			push_constant.push_back(normal_threshold)
-			push_constant.push_back(0.0) 
+			push_constant.push_back(0.0)
 			push_constant.push_back(0.0)
 			push_constant.push_back(0.0)
 
